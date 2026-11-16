@@ -1,0 +1,61 @@
+# Row skeletons for address_generator, OpenCage address-formatting style:
+# {{slot}} placeholders, one weighted template per row shape.
+#
+#   template    skeleton string; {{slot}} marks a fillable slot, the
+#               loader rewrites it to the renderer's {slot} syntax.
+#               ", " separates components, "~" glues the next slot into
+#               the current one, "+" glues unconditionally, any other
+#               text is a literal. {{localities}} expands to one slot
+#               per row locality, {{localities_more}} to all but the
+#               first (for skeletons placing the first separately).
+#   probability sampling weight among eligible templates (normalized)
+#   requires    components the row must carry for the template to be
+#               eligible: road | locality | city | postcode
+#
+# Empty slots vanish together with their separator, so one skeleton
+# covers rows with any subset of the optional components.
+
+templates:
+    # base shape: door, premises detail, road, locality, city, postcode
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{localities}}, {{city}}, {{postcode}}"
+      probability: 0.80
+
+    # residential complex "<building>, <area>" before the road
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{complex}}, {{road}}, {{localities}}, {{city}}, {{postcode}}"
+      probability: 0.08
+
+    # trade multi-road street "<road>, <road>"
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{road}}, {{localities}}, {{city}}, {{postcode}}"
+      probability: 0.10
+      requires: [road]
+
+    # first locality glued into the road comp, front of the road,
+    # and front of a two-road street
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}~{{locality}}{{localities_more}}, {{city}}, {{postcode}}"
+      probability: 0.20
+      requires: [road, locality]
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{locality}}{{localities_more}}, {{road}}, {{city}}, {{postcode}}"
+      probability: 0.10
+      requires: [road, locality]
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{locality}}, {{road}}{{localities_more}}, {{city}}, {{postcode}}"
+      probability: 0.03
+      requires: [road, locality]
+
+    # landmark slots (trade field shares)
+    - template: "{{door}}, {{landmark}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{localities}}, {{city}}, {{postcode}}"
+      probability: 0.005
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{landmark}}, {{localities}}, {{city}}, {{postcode}}"
+      probability: 0.02
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}+{{landmark}}, {{localities}}, {{city}}, {{postcode}}"
+      probability: 0.005
+      requires: [road]
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{localities}}, {{landmark}}, {{city}}, {{postcode}}"
+      probability: 0.005
+      requires: [city]
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{localities}}, {{city}}, {{postcode}}, {{landmark}}"
+      probability: 0.015
+
+    # hyphen-glued city/postcode
+    - template: "{{door}}, {{unit}}, {{level}}, {{house}}, {{road}}, {{localities}}, {{city}} - {{postcode}}"
+      probability: 0.05
+      requires: [city, postcode]

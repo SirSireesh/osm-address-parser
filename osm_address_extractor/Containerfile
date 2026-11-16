@@ -1,0 +1,53 @@
+# Debian stable minimal with the D toolchain AND the arrow
+# glib runtime — one image, build and run inside it:
+#
+#   podman build -t osm2parquet .
+#   podman run --security-opt label=disable --rm \
+#     -v $PWD:/geo -v ~/.duckdb:/root/.duckdb \
+#     --entrypoint /bin/bash osm2parquet \
+#     -c "cd /geo/osm_address_extractor && dub build --compiler=ldc2 -b release &&
+#       LD_LIBRARY_PATH=/geo/thirdparty/shared
+#         bin/osm_address_extractor dataset -i /geo/osm_address_extractor/data/sz-buckets \
+#           --train /geo/osm_address_extractor/data/sz-train.jsonl \
+#           --test /geo/osm_address_extractor/data/sz-test.jsonl"
+#
+# Source is never copied in: the repo mounts at /geo, dub
+# builds in it (bin/ is gitignored), the binary runs in the
+# same container — no host/toolchain glibc split possible.
+
+FROM debian:trixie-slim
+
+# dub/gcc: build. Arrow apt repo: Debian does not ship
+# arrow glib bindings. ldc itself comes from the official
+# 1.42.0 tarball — trixie's apt ldc is 1.40, whose ImportC
+# cannot parse duckdb.h (address_generator's engine).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates wget dub gcc xz-utils \
+ && wget -q -O /tmp/ldc.tar.xz \
+        https://github.com/ldc-developers/ldc/releases/download/v1.42.0/ldc2-1.42.0-linux-x86_64.tar.xz \
+ && tar -xf /tmp/ldc.tar.xz -C /opt \
+ && rm /tmp/ldc.tar.xz \
+ && wget -q -O /tmp/arrow-apt.deb \
+        https://packages.apache.org/artifactory/arrow/debian/pool/trixie/main/a/apache-arrow-apt-source/apache-arrow-apt-source_25.0.1-1_all.deb \
+ && apt-get install -y /tmp/arrow-apt.deb \
+ && rm /tmp/arrow-apt.deb \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+        libarrow-glib2300 \
+        libparquet-glib2300 \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV PATH=/opt/ldc2-1.42.0-linux-x86_64/bin:$PATH
+
+# the binary links phobos shared; the tarball's runtime lives
+# outside the loader defaults
+RUN echo /opt/ldc2-1.42.0-linux-x86_64/lib > /etc/ld.so.conf.d/ldc.conf \
+ && ldconfig
+
+# giD's loader falls back to the unversioned soname; the
+# runtime packages ship only the versioned one
+RUN ln -s libarrow-glib.so.2300 /usr/lib/x86_64-linux-gnu/libarrow-glib.so \
+ && ln -s libparquet-glib.so.2300 /usr/lib/x86_64-linux-gnu/libparquet-glib.so
+
+WORKDIR /src

@@ -1,0 +1,6 @@
+.dub
+bin
+data
+*.parquet
+*.osm.pbf
+.git

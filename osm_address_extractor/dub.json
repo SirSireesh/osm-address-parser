@@ -1,0 +1,29 @@
+{
+	"name": "osm_address_extractor",
+	"description": "OSM PBF to parquet training-data extractor",
+	"targetPath": "bin",
+	"dependencies": {
+		"dyaml": "~>0.10.0"
+	},
+	"dflags-ldc": ["-I$PACKAGE_DIR/../thirdparty", "-J$PACKAGE_DIR/source"],
+	"lflags-ldc": [
+		"-L$PACKAGE_DIR/../thirdparty/shared",
+		"-lduckdb"
+	],
+	"configurations": [
+		{
+			"name": "default",
+			"targetType": "executable",
+			"targetName": "osm_address_extractor",
+			"mainSourceFile": "source/bucket_generator/run.d",
+			"excludedSourceFiles": ["source/address_generator/dataset.d"]
+		},
+		{
+			"name": "dataset",
+			"targetType": "executable",
+			"targetName": "osm_address_extractor-dataset",
+			"mainSourceFile": "source/address_generator/dataset.d",
+			"excludedSourceFiles": ["source/bucket_generator/run.d"]
+		}
+	]
+}
