@@ -514,11 +514,13 @@ private Components synthComponents(Locality loc, Rng* rng,
             if (auto p = loc.name in pools)
                 pool = *p;
 
+        // empty pool draws straight from the road vocab — copying
+        // the whole vocab per locality is O(localities x roads)
+        // string refs and dominates stage 2 on large buckets
         if (pool.length == 0)
-            foreach (rd; b.roads)
-                pool ~= rd.name;
-
-        c.road = pool[rng.intIn(0, cast(int) pool.length - 1)];
+            c.road = b.roads[rng.intIn(0, cast(int) b.roads.length - 1)].name;
+        else
+            c.road = pool[rng.intIn(0, cast(int) pool.length - 1)];
     }
     else
         c.road = synthRoad(rng);

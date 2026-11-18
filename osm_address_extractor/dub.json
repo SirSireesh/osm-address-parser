@@ -5,9 +5,9 @@
 	"dependencies": {
 		"dyaml": "~>0.10.0"
 	},
-	"dflags-ldc": ["-I$PACKAGE_DIR/../thirdparty", "-J$PACKAGE_DIR/source"],
+	"dflags-ldc": ["-I$PACKAGE_DIR/../../thirdparty", "-J$PACKAGE_DIR/source"],
 	"lflags-ldc": [
-		"-L$PACKAGE_DIR/../thirdparty/shared",
+		"-L$PACKAGE_DIR/../../thirdparty/shared",
 		"-lduckdb"
 	],
 	"configurations": [

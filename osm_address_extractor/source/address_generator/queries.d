@@ -243,12 +243,15 @@ public LocRef[][] localityPoolByRow(string dir, size_t firstRow,
     const(double)[] lats, const(double)[] lons, double rangeDeg,
     size_t k)
 {
-    exec("CREATE OR REPLACE TEMP TABLE locs AS SELECT file_row_number AS lseq,"
+    // locs + its RTREE are chunk-invariant: build them once per
+    // session, not per chunk (a per-chunk rebuild re-read the whole
+    // localities parquet and re-indexed it ~nRows/POOL_CHUNK times)
+    exec("CREATE TEMP TABLE IF NOT EXISTS locs AS SELECT file_row_number AS lseq,"
         ~ " name, label, ST_Point(lon, lat) AS g"
         ~ " FROM read_parquet('" ~ escSql(dir ~ "/localities.parquet")
         ~ "', file_row_number=true)");
 
-    exec("CREATE INDEX locs_g_idx ON locs USING RTREE (g)");
+    exec("CREATE INDEX IF NOT EXISTS locs_g_idx ON locs USING RTREE (g)");
 
     exec("CREATE OR REPLACE TEMP TABLE anchors(seq BIGINT, pt GEOMETRY)");
 
@@ -326,13 +329,24 @@ public LocRef[][] localityPoolByRow(string dir, size_t firstRow,
 
     if (anyNull)
     {
-        auto vq = query("SELECT name, label FROM locs ORDER BY lseq");
-        auto vnames = vq.strings(0);
-        auto vlabels = vq.strings(1);
+        // the full vocab is chunk-invariant: read it once per
+        // process and share the array (pools are read-only
+        // downstream); a per-chunk rebuild materialized the whole
+        // locality vocab every POOL_CHUNK
+        static LocRef[] full;
+        static bool haveFull;
 
-        LocRef[] full;
-        foreach (i; 0 .. vnames.length)
-            full ~= LocRef(vnames[i], vlabels[i]);
+        if (!haveFull)
+        {
+            auto vq = query("SELECT name, label FROM locs ORDER BY lseq");
+            auto vnames = vq.strings(0);
+            auto vlabels = vq.strings(1);
+
+            foreach (i; 0 .. vnames.length)
+                full ~= LocRef(vnames[i], vlabels[i]);
+
+            haveFull = true;
+        }
 
         foreach (i; 0 .. lats.length)
             if (isNaN(lats[i]) || isNaN(lons[i]))

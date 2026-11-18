@@ -247,10 +247,16 @@ private string extDir()
 {
     import std.file : thisExePath;
     import std.path : buildPath, dirName;
+    import std.process : environment;
 
-    auto root = thisExePath.dirName.dirName.dirName;
+    // dub test exes live in a dub cache dir: static derivation
+    // can't see the repo, point it via the env override
+    if (auto dir = environment.get("DUCKDB_EXTENSIONS_DIR"))
+        return dir;
 
-    return buildPath(root, "thirdparty", "duckdb-extensions");
+    // four dirs up from <proj>/bin/<exe> is the repo root
+    return buildPath(thisExePath.dirName.dirName.dirName.dirName,
+        "thirdparty", "duckdb-extensions");
 }
 
 // close the shared connection, freeing all engine memory (temp

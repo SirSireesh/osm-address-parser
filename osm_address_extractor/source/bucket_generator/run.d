@@ -487,7 +487,7 @@ private string blockCandidatesSql()
         FROM locals
         WHERE regexp_full_match(name,
               '([^[:space:]]{1,2}|[0-9]+(st|nd|rd|th))'
-                  ~ '[[:space:]]+block', 'i')
+                  || '[[:space:]]+block', 'i')
     ),
     ev AS (
         SELECT 0 AS src, * FROM area_ev

@@ -56,17 +56,14 @@ private enum P_REAL_NAME_LANDMARK = 0.70;
 // building an addr:housename or a synthesized style
 private enum P_REAL_BUILDING = 0.50;
 
-// premises detail rates (NOTES.md trade profile): floors in
-// 8.2% of trade street fields, "Shop No" in 0.7%; housenames
-// are rare in OSM (~5k rows), injected harder to teach the
-// label
-// 0.05: unit values are 0.1% of OSM, the trade-prefixed
-// forms (Unit No.R1, S22) never matched at 0.01 — 3k spans
-// was too thin to teach the label (open 3)
 private enum P_UNIT = 0.05;
 private enum P_LEVEL = 0.08;
 private enum P_HOUSE = 0.05;
 private enum P_REAL_UNIT = 0.70;
+
+private enum P_UNIT_PAIR = 0.15;
+private enum P_UNIT_BARE = 0.15;
+private enum P_UNIT_KIND_HYPHEN = 0.25;
 
 // floors ("2nd Floor") and synthesized unit styles
 private enum string[] LEVELS = [
@@ -912,22 +909,57 @@ private string pickHouse(Rng* rng, Buckets b)
 // trade evals grade the code ("Unit No. 23 B" → unit "23 B")
 private Seg[] synthUnit(Rng* rng)
 {
+    auto code = unitCode(rng);
+
+    // bare trade codes carry a letter ("S22"): bare numbers
+    // read as doors ("84, M.G. Road"), so only lettered codes
+    // open a row unitless
+    if (hasLetter(code) && rng.unit() < P_UNIT_BARE)
+        return [Seg(code, "unit")];
+
     auto kind = UNIT_KINDS[rng.intIn(0, UNIT_KINDS.length - 1)];
 
-    return [Seg(kind, "O"), Seg(unitCode(rng), "unit")];
+    // hyphen marker: "Shop No-23-B" fuses kind to the code
+    if (kind.canFind("No.") && rng.unit() < P_UNIT_KIND_HYPHEN)
+        kind = kind[0 .. $ - 1] ~ "-";
+
+    return [Seg(kind, "O"), Seg(code, "unit")];
 }
 
-// trade unit codes: bare numbers, letter-suffixed ("23 B") and
-// letter-prefixed ("R4", "S22") shapes from hand-eval data
+private bool hasLetter(string s)
+{
+    foreach (c; s)
+        if (isAsciiLetter(c))
+            return true;
+
+    return false;
+}
+
+// trade unit codes: bare numbers, letter-suffixed ("23 B"),
+// letter-prefixed ("R4"), letter-fused-suffix ("R1A") and
+// hyphenated ("23-B") shapes from hand-eval data
 private string unitCode(Rng* rng)
 {
+    // same-prefix pair: "R1 & R1A" (trade pairs share the letter)
+    if (rng.unit() < P_UNIT_PAIR)
+    {
+        auto n1 = rng.intIn(1, UNIT_SUB_MAX).to!string;
+        auto n2 = rng.intIn(1, UNIT_SUB_MAX).to!string;
+        auto l = randUpper(rng);
+        auto tail = rng.unit() < 0.5 ? randUpper(rng) : "";
+
+        return l ~ n1 ~ " & " ~ l ~ n2 ~ tail;
+    }
+
     auto n = rng.intIn(1, UNIT_SUB_MAX).to!string;
 
-    switch (rng.intIn(0, 2))
+    switch (rng.intIn(0, 4))
     {
         case 0: return n;
         case 1: return n ~ " " ~ randUpper(rng);
-        default: return randUpper(rng) ~ n;
+        case 2: return randUpper(rng) ~ n;
+        case 3: return n ~ "-" ~ randUpper(rng);
+        default: return randUpper(rng) ~ n ~ randUpper(rng);
     }
 }
 
@@ -1539,23 +1571,28 @@ unittest
         auto rng = Rng(seed);
         auto segs = synthUnit(&rng);
 
+        // bare trade code ("S22"): the unit opens the row,
+        // only the code carries the label, and the code always
+        // carries a letter ("84" alone is a door)
+        if (segs.length == 1)
+        {
+            assert(segs[0].label == "unit");
+            assert(hasLetter(segs[0].text));
+
+            assert(tagExample([Comp(segs)]).tags[0]
+                == "B-unit");
+
+            continue;
+        }
+
         assert(segs.length == 2);
         assert(segs[0].label == "O");
-        assert(UNIT_KINDS.canFind(segs[0].text));
+
+        // kind words, plain ("Unit No.") or hyphen-fused
+        // ("Shop No-")
+        assert(UNIT_KINDS.canFind(segs[0].text)
+            || segs[0].text.canFind("No-"));
         assert(segs[1].label == "unit");
-
-        // code shapes: bare number ("159"), number + letter
-        // ("23 B"), letter + number ("R4", "S22")
-        auto code = segs[1].text;
-
-        const bool plain = isDigits(code);
-        const bool suffixed = code.length >= 3
-            && isDigits(code[0 .. $ - 2])
-            && code[$ - 2] == ' ' && isAsciiLetter(code[$ - 1]);
-        const bool prefixed = isAsciiLetter(code[0])
-            && isDigits(code[1 .. $]);
-
-        assert(plain || suffixed || prefixed);
 
         // tokens: kind words O, code B-unit
         auto ex = tagExample([Comp(segs)]);
@@ -1568,6 +1605,95 @@ unittest
     }
 
     assert(withUnitNo > 0);
+}
+
+unittest
+{
+    // trade unit codes beyond the three base shapes: hyphenated
+    // ("23-B"), letter-fused suffix ("R1A") and same-prefix
+    // pairs ("R1 & R1A"); every class must fire across seeds
+    int plain, suffixed, prefixed, hyphen, fusedSuf, pair;
+
+    foreach (seed; 0 .. 512)
+    {
+        auto rng = Rng(seed);
+        auto code = unitCode(&rng);
+
+        if (code.canFind(" & "))
+        {
+            pair = true;
+            continue;
+        }
+
+        if (isDigits(code))
+            plain = true;
+        else if (code.canFind("-"))
+        {
+            auto parts = code.split("-");
+            hyphen += parts.length == 2 && isDigits(parts[0])
+                && isAsciiLetter(parts[1][0])
+                && parts[1].length == 1;
+        }
+        else if (isAsciiLetter(code[0])
+            && isAsciiLetter(code[$ - 1])
+            && isDigits(code[1 .. $ - 1]))
+            fusedSuf = true;
+        else if (isAsciiLetter(code[0])
+            && isDigits(code[1 .. $]))
+            prefixed = true;
+        else if (code[$ - 2] == ' ' && code[0 .. $ - 2].isDigits)
+            suffixed = true;
+    }
+
+    assert(plain > 0);
+    assert(suffixed > 0);
+    assert(prefixed > 0);
+    assert(hyphen > 0);
+    assert(fusedSuf > 0);
+    assert(pair > 0);
+}
+
+unittest
+{
+    // bare trade code ("S22, Mantri Mall ..."): the unit opens
+    // the row with no kind marker — only the code carries the
+    // label; the marked kind style must still fire, and the
+    // hyphen marker variant ("Shop No-23-B") must appear
+    int bare, marked, hyphenKind;
+
+    foreach (seed; 0 .. 512)
+    {
+        auto rng = Rng(seed);
+        auto segs = synthUnit(&rng);
+
+        if (segs.length == 1)
+        {
+            bare++;
+
+            assert(segs[0].label == "unit");
+            assert(hasLetter(segs[0].text));
+
+            auto ex = tagExample([Comp(segs)]);
+
+            assert(ex.tags[0] == "B-unit");
+            assert(!ex.tags.canFind("O"));
+
+            continue;
+        }
+
+        marked++;
+
+        assert(segs.length == 2);
+        assert(segs[0].label == "O");
+        assert(segs[1].label == "unit");
+
+        if (segs[0].text.canFind("No-"))
+            hyphenKind++;
+    }
+
+    assert(bare > 0);
+    assert(marked > 0);
+    assert(hyphenKind > 0);
 }
 
 unittest
@@ -1601,8 +1727,13 @@ unittest
 
         fired++;
 
-        assert(ex.tokens[iUnit - 1] != ",");
-        assert(ex.tags[iUnit - 1] == "O");
+        // marked kind: the O kind word sits directly before the
+        // code, no comma; bare code: its comp opener (comma) or
+        // a merged door tag under comma dropout; landmark O
+        // markers ("NEAR") also read O
+        assert(ex.tokens[iUnit - 1] == ","
+            || ex.tags[iUnit - 1].canFind("house_number")
+            || ex.tags[iUnit - 1] == "O");
     }
 
     assert(fired > 0);
